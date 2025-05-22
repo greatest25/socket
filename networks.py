@@ -35,6 +35,18 @@ class CriticNetwork(nn.Module):
     def load_checkpoint(self):
         self.load_state_dict(T.load(self.chkpt_file, map_location=T.device('cpu')))
 
+    def save_for_inference(self):
+        """
+        将模型参数保存为通用格式（JSON）
+        用于在其他平台进行推理
+        """
+        params = {}
+        for name, param in self.named_parameters():
+            params[name] = param.detach().cpu().numpy().tolist()
+        
+        import json
+        with open(f'{self.chkpt_file}_inference.json', 'w') as f:
+            json.dump(params, f)
 
 class ActorNetwork(nn.Module):
     def __init__(self, alpha, input_dims, fc1_dims, fc2_dims, 
@@ -66,3 +78,16 @@ class ActorNetwork(nn.Module):
 
     def load_checkpoint(self):
         self.load_state_dict(T.load(self.chkpt_file, map_location=self.device))
+
+    def save_for_inference(self):
+        """
+        将Actor网络参数保存为通用格式（JSON）
+        用于在其他平台进行推理
+        """
+        params = {}
+        for name, param in self.named_parameters():
+            params[name] = param.detach().cpu().numpy().tolist()
+        
+        import json
+        with open(f'{self.chkpt_file}_inference.json', 'w') as f:
+            json.dump(params, f)

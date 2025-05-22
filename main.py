@@ -98,8 +98,11 @@ if __name__ == '__main__':
         avg_target_score = np.mean(target_score_history[-100:])
         if not evaluate:
             if i % PRINT_INTERVAL == 0 and i > 0 and avg_score > best_score:
-                print('New best score',avg_score ,'>', best_score, 'saving models...')
+                print('New best score', avg_score, '>', best_score, 'saving models...')
                 maddpg_agents.save_checkpoint()
+                # 同时保存推理格式
+                for agent in maddpg_agents.agents:
+                    agent.actor.save_for_inference()  # 只需要保存Actor网络用于推理
                 best_score = avg_score
         if i % PRINT_INTERVAL == 0 and i > 0:
             print('episode', i, 'average score {:.1f}'.format(avg_score),'; average target score {:.1f}'.format(avg_target_score))
