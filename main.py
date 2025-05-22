@@ -100,7 +100,7 @@ if __name__ == '__main__':
             if i % PRINT_INTERVAL == 0 and i > 0 and avg_score > best_score:
                 print('New best score', avg_score, '>', best_score, 'saving models...')
                 maddpg_agents.save_checkpoint()
-                # 同时保存推理格式
+                # 同时保存推理格式，仅在最佳分数更新时保存
                 for agent in maddpg_agents.agents:
                     agent.actor.save_for_inference()  # 只需要保存Actor网络用于推理
                 best_score = avg_score

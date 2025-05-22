@@ -88,6 +88,7 @@ class ActorNetwork(nn.Module):
         for name, param in self.named_parameters():
             params[name] = param.detach().cpu().numpy().tolist()
         
+        # 保存为JSON文件，格式简单，方便调用
         import json
         with open(f'{self.chkpt_file}_inference.json', 'w') as f:
             json.dump(params, f)
