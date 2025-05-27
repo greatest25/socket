@@ -107,6 +107,38 @@ bool UAVModel::loadModel(const QString &filePath)
 
 QPointF UAVModel::inference(const QVector<float> &observation)
 {
+    // 检查输入维度（支持26维原始格式或20维3v3格式）
+    if (observation.size() != inputDims && observation.size() != OBSERVATION_DIM_3V3) {
+        qWarning() << "输入维度不匹配，期望:" << inputDims << "或" << OBSERVATION_DIM_3V3 
+                   << "实际:" << observation.size();
+        return QPointF(0, 0);
+    }
+    
+    // 如果是20维输入但模型期望26维，需要进行维度适配
+    QVector<float> adaptedObservation = observation;
+    if (observation.size() == OBSERVATION_DIM_3V3 && inputDims == 26) {
+        // 扩展到26维，后6维填充默认值（激光传感器数据）
+        for (int i = 0; i < 6; i++) {
+            adaptedObservation.append(1.0f);
+        }
+    }
+    
+    // 创建一个新的观察向量，忽略传感器数据（15-26维）
+    QVector<float> filteredObservation;
+    
+    // 只保留前14维数据（位置、速度、团队成员位置、目标信息）
+    for (int i = 0; i < qMin(14, observation.size()); i++) {
+        filteredObservation.append(observation[i]);
+    }
+    
+    // 如果模型期望完整的26维输入，则补充剩余维度为默认值
+    if (inputDims > filteredObservation.size()) {
+        for (int i = filteredObservation.size(); i < inputDims; i++) {
+            filteredObservation.append(1.0f); // 默认激光传感器值为1.0（最大距离）
+        }
+    }
+    
+    // 使用处理后的观察向量进行推理
     if (observation.size() != inputDims) {
         qWarning() << "输入维度不匹配，期望:" << inputDims << "实际:" << observation.size();
         return QPointF(0, 0);
@@ -159,19 +191,19 @@ QPointF UAVModel::getVelocity(const QVector<float> &observation)
     // 执行模型推理得到加速度
     QPointF acceleration = inference(observation);
     
-    // 将加速度方向直接映射为速度方向
-    float vx = acceleration.x();
-    float vy = acceleration.y();
+    // 更新速度（考虑当前速度和加速度）
+    float vx = currentVelocity.x() + acceleration.x() * timeStep;
+    float vy = currentVelocity.y() + acceleration.y() * timeStep;
     
     // 限制速度大小
     float magnitude = qSqrt(vx*vx + vy*vy);
-    if (magnitude > 0.0f) {
-        // 将加速度方向转换为速度方向，并使用最大速度
+    if (magnitude > vMax) {
         vx = vx / magnitude * vMax;
         vy = vy / magnitude * vMax;
     }
     
-    return QPointF(vx, vy);
+    currentVelocity = QPointF(vx, vy);
+    return currentVelocity;
 }
 
 float UAVModel::leakyReLU(float x)
@@ -214,9 +246,9 @@ QPointF UAVModel::getTargetVelocity(const QVector<float> &observation)
 QPointF UAVModel::getVelocity(const QVector<float> &observation)
 {
     // 执行模型推理得到加速度
-    QPointF acceleration = inference(observation); // 这里调用之前实现的inference方法
+    QPointF acceleration = inference(observation);
     
-    // 更新速度
+    // 更新速度（考虑当前速度和加速度）
     float vx = currentVelocity.x() + acceleration.x() * timeStep;
     float vy = currentVelocity.y() + acceleration.y() * timeStep;
     
@@ -229,4 +261,62 @@ QPointF UAVModel::getVelocity(const QVector<float> &observation)
     
     currentVelocity = QPointF(vx, vy);
     return currentVelocity;
+}
+
+/**
+ * @brief 构建3v3场景的观察向量
+ * @param selfPos 自身位置
+ * @param selfVel 自身速度
+ * @param friendlyPos 友方无人机位置列表（2个）
+ * @param enemyPos 敌方无人机位置列表（3个）
+ * @param targetDistance 目标距离
+ * @param targetAngle 目标角度
+ * @return 20维观察向量
+ */
+QVector<float> UAVModel::buildObservation3v3(const QPointF &selfPos, const QPointF &selfVel,
+                                             const QVector<QPointF> &friendlyPos,
+                                             const QVector<QPointF> &enemyPos,
+                                             float targetDistance, float targetAngle)
+{
+    QVector<float> observation;
+    observation.reserve(OBSERVATION_DIM_3V3);
+    
+    // 1-2: 自身位置
+    observation.append(selfPos.x());
+    observation.append(selfPos.y());
+    
+    // 3-4: 自身速度
+    observation.append(selfVel.x());
+    observation.append(selfVel.y());
+    
+    // 5-8: 友方无人机相对位置（2个）
+    for (int i = 0; i < FRIENDLY_COUNT && i < friendlyPos.size(); i++) {
+        observation.append(friendlyPos[i].x() - selfPos.x()); // 相对x
+        observation.append(friendlyPos[i].y() - selfPos.y()); // 相对y
+    }
+    // 如果友方数量不足，填充0
+    while (observation.size() < 8) {
+        observation.append(0.0f);
+    }
+    
+    // 9-14: 敌方无人机相对位置（3个）
+    for (int i = 0; i < ENEMY_COUNT && i < enemyPos.size(); i++) {
+        observation.append(enemyPos[i].x() - selfPos.x()); // 相对x
+        observation.append(enemyPos[i].y() - selfPos.y()); // 相对y
+    }
+    // 如果敌方数量不足，填充0
+    while (observation.size() < 14) {
+        observation.append(0.0f);
+    }
+    
+    // 15-16: 目标相对距离和角度
+    observation.append(targetDistance);
+    observation.append(targetAngle);
+    
+    // 17-20: 预留维度
+    for (int i = 0; i < 4; i++) {
+        observation.append(0.0f);
+    }
+    
+    return observation;
 }
