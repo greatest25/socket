@@ -28,12 +28,12 @@ class Agent:
     def choose_action(self, observation, time_step, evaluate=False):
         state = T.tensor([observation], dtype=T.float).to(self.actor.device)
         actions = self.actor.forward(state)
-
+    
         # exploration
         max_noise = 0.75
-        min_noise = 0.01
+        min_noise = 0.1  # 增加最小噪声值，从0.01改为0.1
         decay_rate = 0.999995
-
+    
         noise_scale = max(min_noise, max_noise * (decay_rate ** time_step))
         noise = 2 * T.rand(self.n_actions).to(self.actor.device) - 1 # [-1,1)
         if not evaluate:
@@ -79,6 +79,7 @@ class Agent:
         self.target_actor.save_checkpoint()
         self.critic.save_checkpoint()
         self.target_critic.save_checkpoint()
+        self.actor.save_for_inference()
 
     def load_models(self):
         self.actor.load_checkpoint()

@@ -36,16 +36,15 @@ class CriticNetwork(nn.Module):
         self.load_state_dict(T.load(self.chkpt_file, map_location=T.device('cpu')))
 
     def save_for_inference(self):
-        """
-        将模型参数保存为通用格式（JSON）
-        用于在其他平台进行推理
-        """
         params = {}
         for name, param in self.named_parameters():
             params[name] = param.detach().cpu().numpy().tolist()
         
         import json
-        with open(f'{self.chkpt_file}_inference.json', 'w') as f:
+        # 修改保存路径为当前目录
+        import os
+        filename = os.path.basename(self.chkpt_file) + '_inference.json'
+        with open(filename, 'w') as f:
             json.dump(params, f)
 
 class ActorNetwork(nn.Module):
@@ -62,7 +61,7 @@ class ActorNetwork(nn.Module):
         self.optimizer = optim.Adam(self.parameters(), lr=alpha)
         self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=1000, gamma=0.8)
         self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
- 
+
         self.to(self.device)
 
     def forward(self, state):
@@ -80,15 +79,13 @@ class ActorNetwork(nn.Module):
         self.load_state_dict(T.load(self.chkpt_file, map_location=self.device))
 
     def save_for_inference(self):
-        """
-        将Actor网络参数保存为通用格式（JSON）
-        用于在其他平台进行推理
-        """
         params = {}
         for name, param in self.named_parameters():
             params[name] = param.detach().cpu().numpy().tolist()
         
-        # 保存为JSON文件，格式简单，方便调用
         import json
-        with open(f'{self.chkpt_file}_inference.json', 'w') as f:
+        # 修改保存路径为当前目录
+        import os
+        filename = os.path.basename(self.chkpt_file) + '_inference.json'
+        with open(filename, 'w') as f:
             json.dump(params, f)

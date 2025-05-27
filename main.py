@@ -42,13 +42,13 @@ if __name__ == '__main__':
                         n_actions, n_agents, batch_size=256)
 
     PRINT_INTERVAL = 100
-    N_GAMES = 2000
+    N_GAMES = 5000
     MAX_STEPS = 100
     total_steps = 0
     score_history = []
     target_score_history = []
-    evaluate = True
-    best_score = -30
+    evaluate = False
+    best_score = -300
 
     if evaluate:
         maddpg_agents.load_checkpoint()
@@ -96,14 +96,26 @@ if __name__ == '__main__':
         target_score_history.append(score_target)
         avg_score = np.mean(score_history[-100:])
         avg_target_score = np.mean(target_score_history[-100:])
+        # 将第100-106行的条件修改为：
         if not evaluate:
-            if i % PRINT_INTERVAL == 0 and i > 0 and avg_score > best_score:
-                print('New best score', avg_score, '>', best_score, 'saving models...')
-                maddpg_agents.save_checkpoint()
-                # 同时保存推理格式，仅在最佳分数更新时保存
-                for agent in maddpg_agents.agents:
-                    agent.actor.save_for_inference()  # 只需要保存Actor网络用于推理
-                best_score = avg_score
+            if i % PRINT_INTERVAL == 0 and i > 0:
+                # 检查是否是新的最佳分数
+                if avg_score > best_score:
+                    print('New best score', avg_score, '>', best_score, 'saving models...')
+                    best_score = avg_score
+                    # 仅在达到最佳分数时保存模型和推理文件
+                    maddpg_agents.save_checkpoint()
+                    print('Saving inference models...')
+                    for j, agent in enumerate(maddpg_agents.agents):
+                        try:
+                            agent.actor.save_for_inference()
+                            print(f'Agent {j} inference model saved')
+                        except Exception as e:
+                            print(f'Error saving agent {j} inference model: {e}')
+                else:
+                    print(f'Episode {i}, avg score: {avg_score:.1f}, best: {best_score:.1f}')
+                    # 非最佳分数时仅保存检查点，不保存推理模型
+                    maddpg_agents.save_checkpoint()
         if i % PRINT_INTERVAL == 0 and i > 0:
             print('episode', i, 'average score {:.1f}'.format(avg_score),'; average target score {:.1f}'.format(avg_target_score))
     
@@ -114,3 +126,14 @@ if __name__ == '__main__':
     else:
         with open(file_name, 'a') as f:
             pd.DataFrame([score_history]).to_csv(f, header=False, index=False)
+    
+    # 在程序结束时保存模型和JSON文件
+    print('Saving final models...')
+    maddpg_agents.save_checkpoint()
+    print('Saving inference models...')
+    for i, agent in enumerate(maddpg_agents.agents):
+        try:
+            agent.actor.save_for_inference()
+            print(f'Agent {i} inference model saved successfully')
+        except Exception as e:
+            print(f'Error saving agent {i} inference model: {e}')
