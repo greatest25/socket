@@ -4,6 +4,38 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+"""
+参数
+    actor_dims：actor网络的输入维度
+    critic_dims：critic网络的输入维度
+    n_actions：动作空间的维度
+    n_agents：代理数量
+    agent_idx：当前代理的索引
+    chkpt_dir：检查点保存目录
+    alpha：actor网络的学习率
+    beta：critic网络的学习率
+    fc1：第一层全连接层的神经元数量
+    fc2：第二层全连接层的神经元数量
+    gamma：折扣因子
+    tau：软更新参数 
+"""
+
+"""
+Critic Network
+learn:
+    1. 从经验回放中随机采样一批数据
+    2. 计算目标Q值
+    3. 计算当前Q值
+    4. 计算损失函数
+    5. 反向传播
+    6. 更新网络参数
+    7. 软更新目标网络参数
+    8. 学习率衰减
+    9. 保存模型
+    10. 加载模型
+    11. 保存模型用于推理
+    12. 加载模型用于推理
+"""
 class CriticNetwork(nn.Module):
     def __init__(self, beta, input_dims, fc1_dims, fc2_dims, 
                     n_agents, n_actions, name, chkpt_dir):
@@ -47,6 +79,21 @@ class CriticNetwork(nn.Module):
         with open(filename, 'w') as f:
             json.dump(params, f)
 
+"""
+Actor Network
+learn:
+    1. 从经验回放中随机采样一批数据
+    2. 计算当前动作
+    3. 计算损失函数
+    4. 反向传播
+    5. 更新网络参数
+    6. 软更新目标网络参数
+    7. 学习率衰减
+    8. 保存模型
+    9. 加载模型
+    10. 保存模型用于推理
+    11. 加载模型用于推理
+"""
 class ActorNetwork(nn.Module):
     def __init__(self, alpha, input_dims, fc1_dims, fc2_dims, 
                  n_actions, name, chkpt_dir):

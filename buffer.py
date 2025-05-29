@@ -22,6 +22,7 @@ class MultiAgentReplayBuffer:
         self.actor_new_state_memory = []
         self.actor_action_memory = []
 
+        #·不同的智能体的动作空间可能不同，因此需要分别存储
         for i in range(self.n_agents):
             self.actor_state_memory.append(
                             np.zeros((self.mem_size, self.actor_dims[i])))
@@ -30,7 +31,7 @@ class MultiAgentReplayBuffer:
             self.actor_action_memory.append(
                             np.zeros((self.mem_size, self.n_actions)))
 
-
+    #·存储经验
     def store_transition(self, raw_obs, state, action, reward, 
                                raw_obs_, state_, done):
         # this introduces a bug: if we fill up the memory capacity and then
@@ -44,23 +45,26 @@ class MultiAgentReplayBuffer:
         #if self.mem_cntr % self.mem_size == 0 and self.mem_cntr > 0:
         #    self.init_actor_memory()
         
-        index = self.mem_cntr % self.mem_size
+        index = self.mem_cntr % self.mem_size   #·覆盖旧的经验
 
+        #·存储每个智能体的局部经验
         for agent_idx in range(self.n_agents):
             self.actor_state_memory[agent_idx][index] = raw_obs[agent_idx]
             self.actor_new_state_memory[agent_idx][index] = raw_obs_[agent_idx]
             self.actor_action_memory[agent_idx][index] = action[agent_idx]
 
+        #·存储全局经验
         self.state_memory[index] = state
         self.new_state_memory[index] = state_
         self.reward_memory[index] = reward
         self.terminal_memory[index] = done
         self.mem_cntr += 1
 
+    #·随机采样经验
     def sample_buffer(self):
         max_mem = min(self.mem_cntr, self.mem_size)
 
-        batch = np.random.choice(max_mem, self.batch_size, replace=False)
+        batch = np.random.choice(max_mem, self.batch_size, replace=False) #·随机采样索引
 
         states = self.state_memory[batch]
         rewards = self.reward_memory[batch]

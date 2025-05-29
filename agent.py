@@ -2,6 +2,28 @@ import torch as T
 from networks import ActorNetwork, CriticNetwork
 import numpy as np
 
+"""
+#!MADDPG算法中的Agent类
+输入：
+    actor_dims：actor网络的输入维度
+    critic_dims：critic网络的输入维度
+    n_actions：动作空间的维度
+    n_agents：代理数量
+    agent_idx：当前代理的索引
+    chkpt_dir：检查点保存目录
+    alpha：actor网络的学习率
+    beta：critic网络的学习率
+    fc1：第一层全连接层的神经元数量
+    fc2：第二层全连接层的神经元数量
+    gamma：折扣因子
+    tau：软更新参数
+输出：
+    action：当前代理的动作
+    learn：学习函数
+    save_models：保存模型函数
+    load_models：加载模型函数
+    update_network_parameters：更新网络参数函数
+"""
 class Agent:
     def __init__(self, actor_dims, critic_dims, n_actions, n_agents, agent_idx, chkpt_dir,
                     alpha=0.0001, beta=0.0002, fc1=128,
@@ -36,18 +58,21 @@ class Agent:
     
         noise_scale = max(min_noise, max_noise * (decay_rate ** time_step))
         noise = 2 * T.rand(self.n_actions).to(self.actor.device) - 1 # [-1,1)
+        #·训练模式下添加噪声
         if not evaluate:
             noise = noise_scale * noise
         else:
             noise = 0 * noise
         
         action = actions + noise
+        #·限制动作范围
         action_np = action.detach().cpu().numpy()[0]
         magnitude = np.linalg.norm(action_np)
         if magnitude > 0.04:
             action_np = action_np / magnitude * 0.04
         return action_np
 
+    #·更新target网络参数
     def update_network_parameters(self, tau=None):
         if tau is None:
             tau = self.tau
