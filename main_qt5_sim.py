@@ -26,7 +26,7 @@ def plot_learning_curve(x, scores, figure_file):
 
 if __name__ == '__main__':
     # 创建3v3的Qt5模拟环境
-    env = Qt5SimUAVEnv(map_width=1280, map_height=800, num_agents=3, num_enemies=3, num_obstacle=5)
+    env = Qt5SimUAVEnv(map_width=1280, map_height=800, num_agents=3, num_enemies=3, num_static_obstacles=2, num_dynamic_obstacles=1)
     
     # 获取环境参数
     n_agents = env.num_agents
@@ -66,7 +66,7 @@ if __name__ == '__main__':
                           gamma=gamma, tau=tau)
     
     # 训练参数
-    total_episodes = 10000
+    total_episodes = 2000
     max_steps_per_episode = 300
     
     # 是否加载已有模型
@@ -100,6 +100,13 @@ if __name__ == '__main__':
         enemies_defeated_this_episode = 0
         search_time_steps = 0
         capture_time_steps = 0
+
+         # 添加避障和追踪统计
+        obstacle_collision_count = 0    # 障碍物碰撞次数
+        obstacle_warning_count = 0      # 障碍物警告区次数
+        obstacle_avoidance_success = 0  # 成功避障次数
+        tracking_success_count = 0      # 成功追踪次数（保持在最佳追踪区间）
+        tracking_total_count = 0        # 总追踪尝试次数
         
         for step in range(max_steps_per_episode):
             # 选择动作
@@ -123,6 +130,52 @@ if __name__ == '__main__':
                 search_time_steps += 1
             else:
                 capture_time_steps += 1
+
+             # 统计避障情况
+            for i in range(env.num_agents):
+                if env.uav_health[i] <= 0:
+                    continue
+                    
+                # 检查是否有探测到的障碍物
+                if env.obstacle_detected[i]:
+                    # 找到最近的障碍物表面距离
+                    min_dist_to_obs = float('inf')
+                    for obs_data in env.obstacle_detected[i]:
+                        dist_surface = obs_data['distance_to_center'] - obs_data['radius'] - env.uav_radius_approx
+                        if dist_surface < min_dist_to_obs:
+                            min_dist_to_obs = dist_surface
+                    
+                    # 判断是碰撞、警告区还是成功避障
+                    warning_zone_threshold = env.uav_radius_approx * 2.0
+                    if min_dist_to_obs < 0:  # 实际碰撞
+                        obstacle_collision_count += 1
+                    elif min_dist_to_obs < warning_zone_threshold:  # 警告区
+                        obstacle_warning_count += 1
+                    else:  # 成功避障
+                        obstacle_avoidance_success += 1
+            
+            # 统计追踪情况
+            if not env.search_mode:  # 只在围捕模式下统计
+                for i in range(env.num_agents):
+                    if env.uav_health[i] <= 0:
+                        continue
+                        
+                    for j in range(env.num_enemies):
+                        if env.enemy_health[j] <= 0:
+                            continue
+                            
+                        # 计算到敌人的距离
+                        dist_to_enemy = np.linalg.norm(env.multi_current_pos[i] - env.enemy_pos[j])
+                        
+                        # 检查是否在探测范围内
+                        if dist_to_enemy <= env.detection_radius:
+                            # 追踪最佳区间：在攻击范围外一点，但在探测范围内
+                            optimal_track_dist_min = env.attack_radius * 1.2
+                            optimal_track_dist_max = env.detection_radius * 0.9
+                            
+                            tracking_total_count += 1
+                            if optimal_track_dist_min < dist_to_enemy < optimal_track_dist_max:
+                                tracking_success_count += 1
             
             # 存储经验
             memory.store_transition(obs, state, actions, rewards, obs_, state_, dones_from_env)
@@ -158,6 +211,13 @@ if __name__ == '__main__':
         
         current_win_rate = np.mean(win_history[-100:]) if len(win_history) >= 100 else np.mean(win_history) if win_history else 0
         
+        # 计算避障成功率和追踪成功率
+        total_obstacle_encounters = obstacle_collision_count + obstacle_warning_count + obstacle_avoidance_success
+        #? 避障成功率 = 成功避障次数 / 总障碍物接触次数 * 100
+        obstacle_avoidance_rate = obstacle_avoidance_success / total_obstacle_encounters * 100 if total_obstacle_encounters > 0 else 0
+        
+        tracking_success_rate = tracking_success_count / tracking_total_count * 100 if tracking_total_count > 0 else 0
+        
         # 保存最佳模型
         if avg_score > best_score and len(score_history) >= 100:
             best_score = avg_score
@@ -178,8 +238,10 @@ if __name__ == '__main__':
             elapsed_time = time.time() - start_time
             print(f'Ep {episode+1}/{total_episodes}: 得分={score:.2f}, AvgScore(100)={avg_score:.2f}, '
                   f'WinRate(100)={current_win_rate*100:.1f}%, 敌机击毁={enemies_defeated_this_episode}/{env.num_enemies}, '
+                  f'避障成功率={obstacle_avoidance_rate:.1f}%, 追踪成功率={tracking_success_rate:.1f}%, '
                   f'搜索步数={search_time_steps}, 围捕步数={capture_time_steps}, '
-                  f'总步数={global_step_counter}, 耗时={elapsed_time:.1f}s')
+                  f'总步数={global_step_counter}, 耗时={elapsed_time:.1f}s,'
+                  f'避障次数={obstacle_avoidance_success}, 追踪次数={tracking_success_count}')   
     
     # 训练结束，保存最终模型
     print(f'训练结束，保存最终模型到: {save_dir}')
