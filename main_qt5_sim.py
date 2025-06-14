@@ -8,6 +8,11 @@ from buffer import MultiAgentReplayBuffer
 import matplotlib.pyplot as plt
 from datetime import datetime
 import warnings
+import imageio
+import matplotlib.animation as animation
+from matplotlib.patches import Circle
+from model_tester import ModelTester
+import shutil
 warnings.filterwarnings('ignore')
 
 def plot_learning_curve(x, scores, figure_file):
@@ -24,9 +29,10 @@ def plot_learning_curve(x, scores, figure_file):
     plt.savefig(figure_file)
     plt.close()
 
+
 if __name__ == '__main__':
     # 创建3v3的Qt5模拟环境
-    env = Qt5SimUAVEnv(map_width=1280, map_height=800, num_agents=3, num_enemies=3, num_static_obstacles=2, num_dynamic_obstacles=1)
+    env = Qt5SimUAVEnv(map_width=1280, map_height=800, num_agents=3, num_enemies=3, num_static_obstacles=4, num_dynamic_obstacles=2)
     
     # 获取环境参数
     n_agents = env.num_agents
@@ -52,6 +58,12 @@ if __name__ == '__main__':
     scenario_name = 'UAV_Qt5_3v3_SensorCircle'
     save_dir = os.path.join('tmp', 'maddpg_qt5', scenario_name)
     os.makedirs(save_dir, exist_ok=True)
+    
+    # 创建动画保存目录
+    animations_dir = os.path.join(save_dir, 'animations')
+    os.makedirs(animations_dir, exist_ok=True)      
+    # 创建模型测试器
+    model_tester = ModelTester(scenario_name=scenario_name, chkpt_dir=save_dir, animations_dir=animations_dir)
     
     # 创建经验回放缓冲区
     memory = MultiAgentReplayBuffer(memory_size, critic_dims, actor_dims, 
@@ -204,10 +216,7 @@ if __name__ == '__main__':
         avg_score = np.mean(score_history[-100:])
         
         # 记录胜率
-        if all(health <= 0 for health in env.enemy_health):
-            win_history.append(1)
-        else:
-            win_history.append(0)
+        win_history.append(1 if enemies_defeated_this_episode == env.num_enemies else 0)
         
         current_win_rate = np.mean(win_history[-100:]) if len(win_history) >= 100 else np.mean(win_history) if win_history else 0
         
@@ -218,33 +227,34 @@ if __name__ == '__main__':
         
         tracking_success_rate = tracking_success_count / tracking_total_count * 100 if tracking_total_count > 0 else 0
         
-        # 保存最佳模型
-        if avg_score > best_score and len(score_history) >= 100:
+        # 检查是否是新的最佳分数 (增加热身期)
+        if not load_checkpoint and avg_score > best_score and len(score_history) >= 100:
             best_score = avg_score
+            # 保存模型
             maddpg_agents.save_checkpoint()
-            print(f'Episode {episode+1}: 保存新的最佳模型，平均得分 = {avg_score:.2f}')
-        
-        # 每100个episode打印一次学习曲线并保存检查点
-        if (episode + 1) % 100 == 0:
-            if len(score_history) > 0:
-                x_axis = [i + 1 for i in range(len(score_history))]
-                plot_figure_file = os.path.join(save_dir, f'learning_curve_ep{episode+1}.png')
-                plot_learning_curve(x_axis, score_history, plot_figure_file)
+            print(f'\n--- New best score: {best_score:.2f} at episode {episode}. Saving model... ---')
             
-            print(f'Episode {episode+1}: 已保存检查点和学习曲线。')
-        
-        # 打印训练信息
-        if (episode + 1) % 10 == 0:
+            #使用模型测试器测试最佳模型并保存动画            
+            eval_animation_path = model_tester.test_best_model(env, maddpg_agents, episode, avg_score)
+            print(f"评估动画已保存到: {eval_animation_path}")
+
+        # 定期打印进度
+        if (episode + 1) % 50 == 0 or episode == 0:
+            # 计算并打印胜率
+            win_rate = np.mean(win_history[-100:]) * 100 if win_history else 0.0
+            
+            # 打印训练信息
             elapsed_time = time.time() - start_time
-            print(f'Ep {episode+1}/{total_episodes}: 得分={score:.2f}, AvgScore(100)={avg_score:.2f}, '
-                  f'WinRate(100)={current_win_rate*100:.1f}%, 敌机击毁={enemies_defeated_this_episode}/{env.num_enemies}, '
-                  f'避障成功率={obstacle_avoidance_rate:.1f}%, 追踪成功率={tracking_success_rate:.1f}%, '
-                  f'搜索步数={search_time_steps}, 围捕步数={capture_time_steps}, '
-                  f'总步数={global_step_counter}, 耗时={elapsed_time:.1f}s,'
-                  f'避障次数={obstacle_avoidance_success}, 追踪次数={tracking_success_count}')   
-    
+            print(f'Episode {episode}/{total_episodes} | Avg Score: {avg_score:.2f} | Best Score: {best_score:.2f} | Win Rate: {win_rate:.2f}% | '
+                  f'Steps: {step+1} (Search: {search_time_steps}, Capture: {capture_time_steps}) | '
+                  f'Collisions: {obstacle_collision_count}, Warnings: {obstacle_warning_count} | '
+                  f'Global Steps: {global_step_counter} | Time: {elapsed_time:.1f}s')
+
     # 训练结束，保存最终模型
-    print(f'训练结束，保存最终模型到: {save_dir}')
+    print(f'\n训练结束，总耗时: {(time.time() - start_time) / 60:.2f} 分钟')
+    maddpg_agents.save_checkpoint()
+    
+    # 最终评估动画已在训练过程中生成，这里不再重复
     
     # 绘制最终学习曲线
     if len(score_history) > 0:
@@ -252,7 +262,7 @@ if __name__ == '__main__':
         final_lc_path = os.path.join(save_dir, 'final_learning_curve.png')
         plot_learning_curve(x_axis, score_history, final_lc_path)
         print(f'最终学习曲线已保存到: {final_lc_path}')
-
+    
     env.close()
     print('---- 训练完成 ----')
     print(f'总训练时间: {time.time() - start_time:.1f}s')
